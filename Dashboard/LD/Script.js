@@ -1,21 +1,4 @@
-// File: Script.js
-import { auth, provider, signInWithPopup } from "./firebase.js";
 
-document.addEventListener("DOMContentLoaded", () => {
-  const googleLoginButton = document.getElementById("google-login");
-
-  googleLoginButton.addEventListener("click", async () => {
-    try {
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-      console.log(`Logged in as: ${user.displayName}`);
-      alert(`Welcome, ${user.displayName}!`);
-    } catch (error) {
-      console.error("Login failed:", error.message);
-      alert("Login failed. Please try again.");
-    }
-  });
-});
 // // JavaScript can be used to control the loader's visibility
 // document.addEventListener("DOMContentLoaded", function() {
 //     const loader = document.querySelector('.loader');

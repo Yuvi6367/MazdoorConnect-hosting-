@@ -1,13 +1,27 @@
-// Function to get existing entries from local storage
-window.getLabourEntries = function () {
-    const entries = JSON.parse(localStorage.getItem("labourEntries")) || [];
-    entries.forEach((entry) => {
-        if (!Array.isArray(entry.attendance)) {
-            entry.attendance = [];
+import { auth, db } from "./firebase.js";
+import { addDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/9.17.1/firebase-firestore.js";
+
+window.getLabourEntries = async function () {
+    const localEntries = JSON.parse(localStorage.getItem("labourEntries")) || [];
+
+    const user = auth.currentUser;
+    if (user) {
+        try {
+            const userLabourCollection = collection(db, `users/${user.uid}/labourEntries`);
+            const querySnapshot = await getDocs(userLabourCollection);
+            const firebaseEntries = querySnapshot.docs.map((doc) => doc.data());
+            return [...localEntries, ...firebaseEntries];
+        } catch (error) {
+            console.error("Error fetching entries from Firebase:", error);
         }
-    });
-    return entries;
+    }
+
+    return localEntries;
 };
+
+// Function to save a new labour entry to local storage
+
+
 document.addEventListener("DOMContentLoaded", () => {
 
     const entries = getLabourEntries();
@@ -70,13 +84,24 @@ document.addEventListener("DOMContentLoaded", () => {
         return Date.now().toString(); // Use the current timestamp as a unique ID
     }
 
-
-    // Function to save a new labour entry to local storage
-
-    window.saveLabourEntry = function (entry) {
-        const entries = window.getLabourEntries();
-        entries.push(entry);
-        localStorage.setItem("labourEntries", JSON.stringify(entries));
+    // Function to save a new labour entry   
+    window.saveLabourEntry = async function (entry) {
+        const localEntries = await window.getLabourEntries(); // Ensure it returns an array
+        localEntries.push(entry);
+        localStorage.setItem("labourEntries", JSON.stringify(localEntries));
+    
+        const user = auth.currentUser;
+        if (user) {
+            try {
+                const userLabourCollection = collection(db, `users/${user.uid}/labourEntries`);
+                await addDoc(userLabourCollection, entry);
+                console.log("Entry saved to Firebase successfully!");
+            } catch (error) {
+                console.error("Error saving entry to Firebase:", error);
+            }
+        } else {
+            console.warn("User is not logged in. Skipping Firebase save.");
+        }
     };
 
     // Event listener for Create Labour button

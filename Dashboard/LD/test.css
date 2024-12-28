@@ -7,7 +7,7 @@
 }
 .Content01 {
   position: fixed; /* Keeps the div fixed in the viewport */
-  top: 37vh; /* Position at the top of the viewport */
+  top: 36vh; /* Position at the top of the viewport */
   left: 0; /* Position at the left of the viewport */
   right: 0; /* Stretch to the right of the viewport */
   bottom: 0; /* Stretch to the bottom of the viewport */
