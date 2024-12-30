@@ -1,24 +1,27 @@
 import { auth, db } from "./firebase.js";
+import checkAuth from "./google.js";
+import { updateCalculator } from "./newone.js";
 import { addDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/9.17.1/firebase-firestore.js";
 
-window.getLabourEntries = async function () {
-    const localEntries = JSON.parse(localStorage.getItem("labourEntries")) || [];
+checkAuth(); // Ensure the user is authenticated
 
+
+window.getLabourEntries = async function () {
     const user = auth.currentUser;
-    if (user) {
-        try {
-            const userLabourCollection = collection(db, `users/${user.uid}/labourEntries`);
-            const querySnapshot = await getDocs(userLabourCollection);
-            const firebaseEntries = querySnapshot.docs.map((doc) => doc.data());
-            return [...localEntries, ...firebaseEntries];
-        } catch (error) {
-            console.error("Error fetching entries from Firebase:", error);
-        }
+    if (!user) {
+        console.warn("No user is logged in!");
+        return []; // Return empty array if not logged in
     }
 
-    return localEntries;
+    try {
+        const userLabourCollection = collection(db, `users/${user.uid}/labourEntries`);
+        const querySnapshot = await getDocs(userLabourCollection);
+        return querySnapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id })); // Map with doc.id
+    } catch (error) {
+        console.error("Error fetching labour entries from Firebase:", error);
+        return []; // Return empty array on error
+    }
 };
-
 // Function to save a new labour entry to local storage
 
 
@@ -229,8 +232,10 @@ function hideOvertimeForm() {
 }
 
 // Function to save overtime details
-function saveOvertimeDetails() {
-    const name = document.getElementById("overtimeName").textContent.replace("Overtime for: ", "");
+import { doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/9.17.1/firebase-firestore.js";
+
+async function saveOvertimeDetails() {
+    const labourId = document.querySelector(".popup .title").dataset.labourId; // Get labour ID from the popup
     const hours = parseFloat(document.getElementById("overtimeHours").value);
     const rate = parseFloat(document.getElementById("overtimeRate").value);
 
@@ -239,47 +244,64 @@ function saveOvertimeDetails() {
         return;
     }
 
-    const entries = getLabourEntries();
-    const entry = entries.find((labour) => labour.labourName === name);
+    try {
+        // Verify the authenticated user
+        const user = auth.currentUser;
+        if (!user) {
+            console.error("No authenticated user found.");
+            alert("You must be logged in to save overtime details.");
+            return;
+        }
 
-    if (!entry) {
-        alert("Labour entry not found.");
-        return;
+        // Reference the labor document in Firestore
+        const labourDocRef = doc(db, `users/${user.uid}/labourEntries`, labourId);
+
+        // Fetch the labor entry document
+        const labourDocSnapshot = await getDoc(labourDocRef);
+        if (!labourDocSnapshot.exists()) {
+            console.warn(`Labour entry with ID "${labourId}" not found.`);
+            alert("Labour entry not found.");
+            return;
+        }
+
+        const labourEntry = labourDocSnapshot.data();
+
+        // Get the selected date from the popup
+        const date = document.querySelector(".popup1 .popup-date").textContent;
+
+        // Ensure attendance exists for the selected date
+        let attendance = labourEntry.attendance?.find((a) => a.date === date);
+        if (!attendance) {
+            attendance = { date, status: "OT", advances: [], overtime: null };
+            labourEntry.attendance = labourEntry.attendance || [];
+            labourEntry.attendance.push(attendance);
+        }
+
+        // Update overtime details
+        attendance.status = "OT";
+        attendance.overtime = { hours, rate };
+
+        // Save updated attendance back to Firestore
+        await updateDoc(labourDocRef, { attendance: labourEntry.attendance });
+
+        alert(`Overtime saved for Labour ID "${labourId}": ${hours} hours @ ${rate}/hour`);
+
+        // Update the calculator for the specific labour
+        updateCalculator(labourId);
+
+        // Update the UI dynamically
+        const spreadsheetRow = document.querySelector(`.spreadsheet .row[data-date="${date}"]`);
+        if (spreadsheetRow) {
+            spreadsheetRow.querySelector(".cell:nth-child(2)").innerHTML = `
+                OT<br>${hours}h @ ${rate}/hr
+            `;
+        }
+
+        hideOvertimeForm();
+    } catch (error) {
+        console.error("Error saving overtime details:", error);
+        alert("An error occurred while saving overtime details. Please try again.");
     }
-
-    // Ensure attendance exists for today
-    // Get the selected date from the popup
-    const date = document.querySelector(".popup1 .popup-date").textContent;
-
-    // Ensure attendance exists for the selected date
-    let attendance = entry.attendance.find((a) => a.date === date);
-    if (!attendance) {
-        attendance = { date, status: "OT", advances: [], overtime: null };
-        entry.attendance.push(attendance);
-    }
-
-    // Update overtime details
-    attendance.status = "OT";
-    attendance.overtime = { hours, rate };
-    // Save back to localStorage
-    localStorage.setItem("labourEntries", JSON.stringify(entries));
-    alert(`Overtime saved for ${name}: ${hours} hours @ ${rate}/hour`);
-
-    // Update the calculator for the specific labour
-    updateCalculator(entry.id);
-    hideOvertimeForm();
-    // Update the calculator and UI
-    const labourId = entry.id;
-    updateCalculator(labourId);
-
-    const spreadsheetRow = document.querySelector(`.spreadsheet .row[data-date="${date}"]`);
-    if (spreadsheetRow) {
-        spreadsheetRow.querySelector(".cell:nth-child(2)").innerHTML = `
-            OT<br>${hours}h @ ${rate}/hr
-        `;
-    }
-
-    hideOvertimeForm();
 }
 // Add event listener for OT button
 document.addEventListener("click", (event) => {
@@ -538,3 +560,25 @@ document.addEventListener("click", (event) => {
         hideBottomMenu();
     }
 });
+window.getLabourEntries = async function () {
+    return new Promise((resolve, reject) => {
+        auth.onAuthStateChanged(async (user) => {
+            if (!user) {
+                console.warn("User is not logged in!");
+                resolve([]); // Return empty array if not logged in
+            } else {
+                try {
+                    const userLabourCollection = collection(db, `users/${user.uid}/labourEntries`);
+                    const querySnapshot = await getDocs(userLabourCollection);
+
+                    const entries = querySnapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+                    console.log("Entries fetched:", entries);
+                    resolve(entries); // Resolve fetched entries
+                } catch (error) {
+                    console.error("Error fetching labour entries:", error);
+                    reject(error); // Reject on error
+                }
+            }
+        });
+    });
+};

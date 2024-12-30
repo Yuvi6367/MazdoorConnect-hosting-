@@ -1,82 +1,91 @@
 // File: newone.js
+import { auth, db } from "./firebase.js";
+import checkAuth from "./google.js";
+import { addDoc, collection, getDocs, updateDoc, doc, getDoc } from "https://www.gstatic.com/firebasejs/9.17.1/firebase-firestore.js";
+export { db };
 
 document.addEventListener("DOMContentLoaded", () => {
     // Render stored labour entries from local storage
-    function renderStoredEntries() {
-        const entries = getLabourEntries(); // Fetch existing entries from local storage
+    async function renderStoredEntries() {
+        try {
+            const labourContent = document.getElementById("labourContent");
+            const placeholder = document.getElementById("placeholder");
+            const addLabourBtn = document.getElementById("addLabourBtn");
 
-        const labourContent = document.getElementById("labourContent");
-        const placeholder = document.getElementById("placeholder");
-        const addLabourBtn = document.getElementById("addLabourBtn");
+            // Wait for Firebase to confirm authentication state
+            auth.onAuthStateChanged(async (user) => {
+                if (!user) {
+                    console.warn("No user is logged in. Cannot render entries.");
+                    return;
+                }
 
-        // Loop through all stored entries and render them
-        entries.forEach((entry) => {
-            // Dynamically create the labour entry wrapper
-            const labourEntryWrapper = document.createElement("div");
-            labourEntryWrapper.className = "labour-entry-wrapper";
-            labourEntryWrapper.setAttribute("data-id", entry.id); // Use the unique ID
+                // Fetch entries from Firebase
+                const userLabourCollection = collection(db, `users/${user.uid}/labourEntries`);
+                const querySnapshot = await getDocs(userLabourCollection);
+                const entries = querySnapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 
-            // Create action buttons
-            const actionButtons = document.createElement("div");
-            actionButtons.className = "action-buttons";
+                if (!entries || entries.length === 0) {
+                    console.log("No entries to render.");
+                    placeholder.style.display = "block"; // Show placeholder if no entries exist
+                    return;
+                }
 
-            const pButton = document.createElement("button");
-            pButton.textContent = "P";
-            pButton.className = "action-btn green";
+                // Render entries
+                entries.forEach((entry) => {
+                    const labourEntryWrapper = document.createElement("div");
+                    labourEntryWrapper.className = "labour-entry-wrapper";
+                    labourEntryWrapper.setAttribute("data-id", entry.id);
 
-            const aButton = document.createElement("button");
-            aButton.textContent = "A";
-            aButton.className = "action-btn red";
+                    const actionButtons = document.createElement("div");
+                    actionButtons.className = "action-buttons";
 
-            const otButton = document.createElement("button");
-            otButton.textContent = "OT";
-            otButton.className = "action-btn orange";
+                    const pButton = document.createElement("button");
+                    pButton.textContent = "P";
+                    pButton.className = "action-btn green";
 
-            const hButton = document.createElement("button");
-            hButton.textContent = "H";
-            hButton.className = "action-btn grey";
+                    const aButton = document.createElement("button");
+                    aButton.textContent = "A";
+                    aButton.className = "action-btn red";
 
-            // Append action buttons to the actionButtons container
-            actionButtons.appendChild(pButton);
-            actionButtons.appendChild(aButton);
-            actionButtons.appendChild(otButton);
-            actionButtons.appendChild(hButton);
+                    const otButton = document.createElement("button");
+                    otButton.textContent = "OT";
+                    otButton.className = "action-btn orange";
 
-            // Create the main labour entry button
-            const labourEntryButton = document.createElement("button");
-            labourEntryButton.className = "labour-entry-btn";
+                    const hButton = document.createElement("button");
+                    hButton.textContent = "H";
+                    hButton.className = "action-btn grey";
 
-            const nameSpan = document.createElement("span");
-            nameSpan.className = "labour-name";
-            nameSpan.textContent = entry.labourName;
+                    actionButtons.append(pButton, aButton, otButton, hButton);
 
-            const tapHoldSpan = document.createElement("span");
-            tapHoldSpan.className = "tap-hold";
-            tapHoldSpan.textContent = "Tap & hold for more options";
+                    const labourEntryButton = document.createElement("button");
+                    labourEntryButton.className = "labour-entry-btn";
 
-            // Append name and text to the labour entry button
-            labourEntryButton.appendChild(nameSpan);
-            labourEntryButton.appendChild(tapHoldSpan);
+                    const nameSpan = document.createElement("span");
+                    nameSpan.className = "labour-name";
+                    nameSpan.textContent = entry.labourName || "No Name";
 
-            // Combine the action buttons and main entry button into the wrapper
-            labourEntryWrapper.appendChild(actionButtons);
-            labourEntryWrapper.appendChild(labourEntryButton);
+                    const tapHoldSpan = document.createElement("span");
+                    tapHoldSpan.className = "tap-hold";
+                    tapHoldSpan.textContent = "Tap & hold for more options";
 
-            // Replace placeholder text with the new entry
-            if (placeholder) {
-                placeholder.remove();
-            }
+                    labourEntryButton.append(nameSpan, tapHoldSpan);
 
-            // Insert the new entry before the Add Labour button
-            labourContent.insertBefore(labourEntryWrapper, addLabourBtn);
-        });
+                    labourEntryWrapper.append(actionButtons, labourEntryButton);
 
-        // Call the function to add listeners to the newly created entries
-        addLongPressListeners();
+                    if (placeholder) {
+                        placeholder.remove();
+                    }
 
-        console.log("Stored entries rendered successfully.");
+                    labourContent.insertBefore(labourEntryWrapper, addLabourBtn);
+                });
+
+                addLongPressListeners();
+                console.log("Entries rendered successfully.");
+            });
+        } catch (error) {
+            console.error("Error rendering entries:", error);
+        }
     }
-
     // Call this function after DOM content is loaded
     renderStoredEntries();
     // Hide popup1 and overlay when overlay1 is clicked
@@ -96,136 +105,24 @@ document.addEventListener("DOMContentLoaded", () => {
     const LONG_PRESS_THRESHOLD = 500; // 500ms for a long press
 
     // Function to show the pop-up and overlay
-   // Attach showPopup to the global window object
-   window.showPopup = function (labourId, selectedDate = null) {
-    const currentYearElem = document.querySelector(".current-year");
-    const currentMonthElem = document.querySelector(".current-month");
+    // Attach showPopup to the global window object
+    window.showPopup = async function (labourId, selectedDate = null) {
+        const currentYearElem = document.querySelector(".current-year");
+        const currentMonthElem = document.querySelector(".current-month");
 
-    // Use selected year and month if no date is provided
-    if (!selectedDate) {
-        const selectedYear = parseInt(currentYearElem.textContent, 10);
-        selectedDate = new Date(`${currentMonthElem.textContent} 1, ${selectedYear}`);
-    }
-
-    const popup = document.querySelector(".popup");
-    const overlay = document.querySelector(".overlay");
-
-    popup.style.display = "flex"; // Show popup
-    overlay.classList.add("visible"); // Show overlay
-
-    const entries = window.getLabourEntries();
-    const labourEntry = entries.find((entry) => entry.id === labourId);
-
-    if (!labourEntry) {
-        alert("Labour entry not found!");
-        return;
-    }
-
-    // Update the title and category fields in the popup
-    const labourTitleElem = document.querySelector(".popup .title");
-    const labourCategoryElem = document.querySelector(".popup .category");
-
-    labourTitleElem.textContent = labourEntry.labourName || "N/A";
-    labourCategoryElem.textContent = labourEntry.labourCategory || "N/A";
-    labourTitleElem.dataset.labourId = labourId; // Attach labourId for further actions
-
-    const labourRows = document.querySelector(".spreadsheet");
-    const year = selectedDate.getFullYear();
-    const month = selectedDate.getMonth();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-    // Clear previous rows but keep header intact
-    labourRows.innerHTML = `
-        <div class="row header">
-            <div class="cell">Date</div>
-            <div class="cell">Appearance</div>
-            <div class="cell">Advance</div>
-        </div>
-    `;
-
-    const today = new Date().toISOString().split("T")[0]; // Today's date in YYYY-MM-DD
-
-    // Loop through days of the selected month
-    for (let day = 1; day <= daysInMonth; day++) {
-        const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-        const attendance = labourEntry.attendance.find((a) => a.date === date) || {};
-        const isToday = date === today ? "highlight" : ""; // Add highlight if today
-
-        // Handle overtime details
-        const overtimeDetails =
-            attendance.overtime && attendance.status === "OT"
-                ? `<br>OT: ${attendance.overtime.hours}h @ ${attendance.overtime.rate}/hr`
-                : "";
-
-        // Render the row
-        labourRows.insertAdjacentHTML(
-            "beforeend",
-            `
-            <div class="row clickable ${isToday}" data-date="${date}">
-                <div class="cell">${new Date(date).toLocaleDateString("en-US", { weekday: "short", day: "2-digit" })}</div>
-                <div class="cell">${attendance.status || ""}${overtimeDetails}</div>
-                <div class="cell">${
-                    attendance.advances
-                        ? attendance.advances.reduce((sum, value) => sum + value, 0)
-                        : ""
-                }</div>
-            </div>
-        `
-        );
-    }
-
-    // Ensure the calculator updates based on the current selection
-    updateCalculatorForMonth(labourId, selectedDate);
-};
-function setupYearSwitcher() {
-    const currentYearElem = document.querySelector(".current-year");
-    const yearDropdown = document.getElementById("yearDropdown");
-    const yearList = document.getElementById("yearList");
-    const currentYear = new Date().getFullYear();
-
-    // Populate year dropdown (10 years back and forward)
-    for (let year = currentYear - 10; year <= currentYear + 10; year++) {
-        const yearItem = document.createElement("li");
-        yearItem.textContent = year;
-        yearItem.classList.add("year-item");
-        yearItem.dataset.year = year;
-
-        // Highlight current year
-        if (year === currentYear) {
-            yearItem.classList.add("selected");
+        if (!selectedDate) {
+            const selectedYear = parseInt(currentYearElem.textContent, 10);
+            selectedDate = new Date(`${currentMonthElem.textContent} 1, ${selectedYear}`);
         }
 
-        // Add click event to change year
-        yearItem.addEventListener("click", () => {
-            // Update the selected year
-            document.querySelectorAll(".year-item").forEach((item) => item.classList.remove("selected"));
-            yearItem.classList.add("selected");
-            currentYearElem.textContent = year;
+        const popup = document.querySelector(".popup");
+        const overlay = document.querySelector(".overlay");
 
-            // Hide the dropdown
-            yearList.style.display = "none";
+        popup.style.display = "flex";
+        overlay.classList.add("visible");
 
-            // Update spreadsheet and calculator
-            updateYearAndMonth();
-        });
-
-        yearList.appendChild(yearItem);
-    }
-
-    // Toggle dropdown visibility
-    yearDropdown.addEventListener("click", () => {
-        yearList.style.display = yearList.style.display === "none" ? "block" : "none";
-    });
-
-    // Close dropdown if clicked outside
-    document.addEventListener("click", (event) => {
-        if (!yearDropdown.contains(event.target) && !yearList.contains(event.target)) {
-            yearList.style.display = "none";
-        }
-    });
-}
-    function showBottomPopup(date, labourId) {
-        const entries = window.getLabourEntries();
+        // Fetch entries from Firebase
+        const entries = await window.getLabourEntries();
         const labourEntry = entries.find((entry) => entry.id === labourId);
 
         if (!labourEntry) {
@@ -233,35 +130,144 @@ function setupYearSwitcher() {
             return;
         }
 
-        // Find attendance data for the selected date
-        const attendance = labourEntry.attendance.find((a) => a.date === date) || {};
+        // Populate popup details
+        const labourTitleElem = document.querySelector(".popup .title");
+        const labourCategoryElem = document.querySelector(".popup .category");
 
-        // Populate the popup content
-        const popup1 = document.getElementById("popup1");
-        popup1.querySelector(".popup-date").textContent = date; // Set date
-        popup1.querySelector(".labour-name").textContent = labourEntry.labourName; // Set labour name
-        popup1.querySelector(".category").textContent = labourEntry.labourCategory; // Set category
-        popup1.querySelector("#amount").value = attendance.advances
-            ? attendance.advances.reduce((sum, value) => sum + value, 0)
-            : "";
-        renderAdvancesPopup(labourId, date); // Ensure advances are updated for the selected date
+        labourTitleElem.textContent = labourEntry.labourName || "N/A";
+        labourCategoryElem.textContent = labourEntry.labourCategory || "N/A";
+        labourTitleElem.dataset.labourId = labourId;
 
-        // Show the bottom popup
-        const overlay1 = document.getElementById("popupOverlay1");
-        popup1.style.bottom = "0";
-        popup1.style.transition = "bottom 0.3s ease";
+        // Render spreadsheet rows based on attendance data
+        const labourRows = document.querySelector(".spreadsheet");
+        const year = selectedDate.getFullYear();
+        const month = selectedDate.getMonth();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-        // Show the overlay
-        overlay1.classList.add("visible");
+        labourRows.innerHTML = `
+            <div class="row header">
+                <div class="cell">Date</div>
+                <div class="cell">Appearance</div>
+                <div class="cell">Advance</div>
+            </div>`;
+
+        const today = new Date().toISOString().split("T")[0];
+
+        for (let day = 1; day <= daysInMonth; day++) {
+            const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+            const attendance = labourEntry.attendance.find((a) => a.date === date) || {};
+            const isToday = date === today ? "highlight" : "";
+
+            const overtimeDetails =
+                attendance.overtime && attendance.status === "OT"
+                    ? `<br>OT: ${attendance.overtime.hours}h @ ${attendance.overtime.rate}/hr`
+                    : "";
+
+            labourRows.insertAdjacentHTML(
+                "beforeend",
+                `
+                <div class="row clickable ${isToday}" data-date="${date}">
+                    <div class="cell">${new Date(date).toLocaleDateString("en-US", { weekday: "short", day: "2-digit" })}</div>
+                    <div class="cell">${attendance.status || ""}${overtimeDetails}</div>
+                    <div class="cell">${attendance.advances ? attendance.advances.reduce((sum, value) => sum + value, 0) : ""}</div>
+                </div>`
+            );
+        }
+
+        // Update the calculator
+        updateCalculatorForMonth(labourId, selectedDate);
+    };
+    function setupYearSwitcher() {
+        const currentYearElem = document.querySelector(".current-year");
+        const yearDropdown = document.getElementById("yearDropdown");
+        const yearList = document.getElementById("yearList");
+        const currentYear = new Date().getFullYear();
+
+        // Populate year dropdown (10 years back and forward)
+        for (let year = currentYear - 10; year <= currentYear + 10; year++) {
+            const yearItem = document.createElement("li");
+            yearItem.textContent = year;
+            yearItem.classList.add("year-item");
+            yearItem.dataset.year = year;
+
+            // Highlight current year
+            if (year === currentYear) {
+                yearItem.classList.add("selected");
+            }
+
+            // Add click event to change year
+            yearItem.addEventListener("click", () => {
+                // Update the selected year
+                document.querySelectorAll(".year-item").forEach((item) => item.classList.remove("selected"));
+                yearItem.classList.add("selected");
+                currentYearElem.textContent = year;
+
+                // Hide the dropdown
+                yearList.style.display = "none";
+
+                // Update spreadsheet and calculator
+                updateYearAndMonth();
+            });
+
+            yearList.appendChild(yearItem);
+        }
+
+        // Toggle dropdown visibility
+        yearDropdown.addEventListener("click", () => {
+            yearList.style.display = yearList.style.display === "none" ? "block" : "none";
+        });
+
+        // Close dropdown if clicked outside
+        document.addEventListener("click", (event) => {
+            if (!yearDropdown.contains(event.target) && !yearList.contains(event.target)) {
+                yearList.style.display = "none";
+            }
+        });
     }
+    async function showBottomPopup(date, labourId) {
+        try {
+            // Await entries from Firebase or local storage
+            const entries = await window.getLabourEntries();
+            const labourEntry = entries.find((entry) => entry.id === labourId);
 
+            if (!labourEntry) {
+                console.warn(`Labour entry with ID ${labourId} not found.`);
+                alert("Labour entry not found!");
+                return;
+            }
+
+            // Find attendance data for the selected date
+            const attendance = labourEntry.attendance.find((a) => a.date === date) || {};
+
+            // Populate the popup content
+            const popup1 = document.getElementById("popup1");
+            popup1.querySelector(".popup-date").textContent = date; // Set date
+            popup1.querySelector(".labour-name").textContent = labourEntry.labourName || "N/A"; // Set labour name
+            popup1.querySelector(".category").textContent = labourEntry.labourCategory || "N/A"; // Set category
+            popup1.querySelector("#amount").value = attendance.advances
+                ? attendance.advances.reduce((sum, value) => sum + value, 0)
+                : "";
+            renderAdvancesPopup(labourId, date); // Ensure advances are updated for the selected date
+
+            // Show the bottom popup
+            const overlay1 = document.getElementById("popupOverlay1");
+            popup1.style.bottom = "0";
+            popup1.style.transition = "bottom 0.3s ease";
+
+            // Show the overlay
+            overlay1.classList.add("visible");
+        } catch (error) {
+            console.error("Error displaying bottom popup:", error);
+            alert("An error occurred while loading the popup. Please try again.");
+        }
+    }
     // Event listener for row clicks
-    document.addEventListener("click", (event) => {
+    document.addEventListener("click", async (event) => {
         const clickedRow = event.target.closest(".clickable");
         if (clickedRow) {
             const date = clickedRow.dataset.date;
             const labourId = document.querySelector(".popup .title").dataset.labourId;
-            showBottomPopup(date, labourId);
+            await showBottomPopup(date, labourId);
         }
     });
     document.getElementById("prevMonth").addEventListener("click", () => switchMonth("prev"));
@@ -544,152 +550,243 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 });
 // Function to update attendance from popup1 buttons
-function updatePopup1Status(labourId, date, status) {
-    const entries = window.getLabourEntries();
-    const labourEntry = entries.find((entry) => entry.id === labourId);
 
-    if (!labourEntry) {
-        alert("Labour entry not found!");
-        return;
-    }
+async function updatePopup1Status(labourId, date, status) {
+    try {
+        // Verify the authenticated user
+        const user = auth.currentUser;
+        if (!user) {
+            console.error("No authenticated user found.");
+            alert("You must be logged in to update the status.");
+            return;
+        }
 
-    let attendance = labourEntry.attendance.find((a) => a.date === date);
+        // Reference the labor document in Firestore
+        const labourDocRef = doc(db, `users/${user.uid}/labourEntries`, labourId);
 
-    if (!attendance) {
-        attendance = { date, status: "", advances: [], overtime: null };
-        labourEntry.attendance.push(attendance);
-    }
+        // Fetch the labor entry document
+        const labourDocSnapshot = await getDoc(labourDocRef);
+        if (!labourDocSnapshot.exists()) {
+            console.warn(`Labour entry with ID ${labourId} not found.`);
+            alert("Labour entry not found!");
+            return;
+        }
 
-    // Update status and handle overtime
-    if (status === "OT") {
-        attendance.status = "OT";
-        attendance.overtime = attendance.overtime || { hours: 0, rate: 0 }; // Ensure overtime exists
-    } else {
-        attendance.status = status;
-        attendance.overtime = null; // Clear overtime for non-OT statuses
-    }
+        const labourEntry = labourDocSnapshot.data();
 
-    // Save updated data back to localStorage
-    localStorage.setItem("labourEntries", JSON.stringify(entries));
+        // Find or create attendance for the specified date
+        let attendance = labourEntry.attendance?.find((a) => a.date === date);
+        if (!attendance) {
+            attendance = { date, status: "", advances: [], overtime: null };
+            labourEntry.attendance = labourEntry.attendance || [];
+            labourEntry.attendance.push(attendance);
+        }
 
-    // Update UI dynamically
-    const spreadsheetRow = document.querySelector(`.spreadsheet .row[data-date="${date}"]`);
-    if (spreadsheetRow) {
-        spreadsheetRow.querySelector(".cell:nth-child(2)").innerHTML = `
-            ${attendance.status}
-            ${
-                attendance.overtime
+        // Update status and handle overtime
+        if (status === "OT") {
+            attendance.status = "OT";
+            attendance.overtime = attendance.overtime || { hours: 0, rate: 0 }; // Ensure overtime exists
+        } else {
+            attendance.status = status;
+            attendance.overtime = null; // Clear overtime for non-OT statuses
+        }
+
+        // Save updated data back to Firebase
+        await updateDoc(labourDocRef, { attendance: labourEntry.attendance });
+        console.log("Updated labour entry successfully in Firebase.");
+
+        // Update UI dynamically
+        const spreadsheetRow = document.querySelector(`.spreadsheet .row[data-date="${date}"]`);
+        if (spreadsheetRow) {
+            spreadsheetRow.querySelector(".cell:nth-child(2)").innerHTML = `
+                ${attendance.status}
+                ${attendance.overtime
                     ? `<br>OT: ${attendance.overtime.hours}h @ ${attendance.overtime.rate}/hr`
                     : ""
-            }
-        `;
-    }
+                }
+            `;
+        }
 
-    // Update the calculator
-    updateCalculator(labourId);
-    alert(`${labourEntry.labourName} marked as ${status} for ${date}`);
+        // Update the calculator
+        updateCalculator(labourId);
+
+        // Show success message
+        alert(`${labourEntry.labourName} marked as ${status} for ${date}`);
+    } catch (error) {
+        console.error("Error updating popup status:", error);
+        alert("An error occurred while updating status. Please try again.");
+    }
 }
-// Function to save advance amount and update spreadsheet
-function saveAdvanceAmount() {
+// Function to save advance amount and update spread
+async function saveAdvanceAmount() {
+    const advanceList = document.getElementById("advance-list");
+    advanceList.innerHTML = ""; // Clear previous entries
+
     const popup1 = document.getElementById("popup1");
     const labourId = document.querySelector(".popup .title").dataset.labourId; // Fetch labour ID from the main popup
     const date = popup1.querySelector(".popup-date").textContent; // Fetch selected date
     const amountInput = popup1.querySelector("#amount");
-    const advanceAmount = amountInput.value.trim(); // Get the entered amount
+    const advanceAmount = parseFloat(amountInput.value.trim()); // Get the entered amount
 
     if (!advanceAmount || isNaN(advanceAmount)) {
         alert("Please enter a valid amount.");
         return;
     }
 
-    // Fetch labour data
-    const entries = window.getLabourEntries();
-    const labourEntry = entries.find((entry) => entry.id === labourId);
+    try {
+        // Verify the authenticated user
+        const user = auth.currentUser;
+        if (!user) {
+            console.error("No authenticated user found.");
+            alert("You must be logged in to save an advance amount.");
+            return;
+        }
 
-    if (!labourEntry) {
-        alert("Labour entry not found!");
-        return;
+        // Reference the labor document in Firestore
+        const labourDocRef = doc(db, `users/${user.uid}/labourEntries`, labourId);
+
+        // Fetch the labor entry document
+        const labourDocSnapshot = await getDoc(labourDocRef);
+        let labourEntry = labourDocSnapshot.exists() ? labourDocSnapshot.data() : null;
+
+        if (!labourEntry) {
+            // Initialize labor entry if it doesn't exist
+            console.warn(`Labour entry with ID ${labourId} not found.`);
+            labourEntry = { attendance: [] };
+        }
+
+        // Find attendance data for the selected date or create a new one
+        let attendance = labourEntry.attendance.find((a) => a.date === date);
+        if (!attendance) {
+            attendance = { date, status: "", advances: [] };
+            labourEntry.attendance.push(attendance);
+        }
+
+        // Add the new advance to the advances array
+        attendance.advances = attendance.advances || [];
+        attendance.advances.push(advanceAmount);
+
+        // Save updated data back to Firebase
+        await updateDoc(labourDocRef, { attendance: labourEntry.attendance });
+
+        // Log success
+        console.log(`Advance of ${advanceAmount} saved under ${date} for labour ID ${labourId}.`);
+
+        // Re-render popup advances
+        await renderAdvancesPopup(labourId, date);
+
+        // Update the spreadsheet with the total advance
+        const totalAdvance = attendance.advances.reduce((sum, value) => sum + value, 0);
+        const spreadsheetRow = document.querySelector(`.spreadsheet .row[data-date="${date}"]`);
+        if (spreadsheetRow) {
+            spreadsheetRow.querySelector(".cell:nth-child(3)").textContent = totalAdvance || ""; // Update total
+        }
+
+        alert(`Advance of ${advanceAmount} saved successfully!`);
+
+        // Reset input field
+        amountInput.value = "";
+        updateCalculator(labourId); // Recalculate after updating attendance
+    } catch (error) {
+        console.error("Error saving advance amount:", error);
+        alert("An error occurred while saving the advance amount. Please try again.");
     }
-
-    // Find attendance data for the selected date or create a new one
-    let attendance = labourEntry.attendance.find((a) => a.date === date);
-    if (!attendance) {
-        attendance = { date, status: "", advances: [] };
-        labourEntry.attendance.push(attendance);
-    }
-
-    // Add the new advance to the advances array
-    attendance.advances = attendance.advances || [];
-    attendance.advances.push(parseFloat(advanceAmount));
-    localStorage.setItem("labourEntries", JSON.stringify(entries));
-
-    // Re-render popup advances
-    renderAdvancesPopup(labourId, date);
-
-    // Update the spreadsheet with the total advance
-    const totalAdvance = attendance.advances.reduce((sum, value) => sum + value, 0);
-    const spreadsheetRow = document.querySelector(`.spreadsheet .row[data-date="${date}"]`);
-    if (spreadsheetRow) {
-        spreadsheetRow.querySelector(".cell:nth-child(3)").textContent = totalAdvance || ""; // Update total
-    }
-
-    alert(`Advance of ${advanceAmount} saved for ${labourEntry.labourName} on ${date}`);
-
-    // Reset input field
-    amountInput.value = "";
-    updateCalculator(labourId); // Recalculate after updating attendance
 }
 // Add an event listener for the Pay button
 document.querySelector(".pay-btn").addEventListener("click", saveAdvanceAmount);
 // Function to render advances with delete option in popup1
-function renderAdvancesPopup(labourId, date) {
+async function renderAdvancesPopup(labourId, date) {
     const advanceList = document.getElementById("advance-list");
     advanceList.innerHTML = ""; // Clear previous entries
 
-    // Fetch labour data
-    const entries = window.getLabourEntries();
-    const labourEntry = entries.find((entry) => entry.id === labourId);
+    try {
+        // Verify user authentication
+        const user = auth.currentUser;
+        if (!user) {
+            console.error("No authenticated user found.");
+            return;
+        }
 
-    if (!labourEntry) return;
+        // Reference the labor document in Firestore
+        const labourDocRef = doc(db, `users/${user.uid}/labourEntries`, labourId);
 
-    // Find attendance data for the specific date
-    const attendance = labourEntry.attendance.find((a) => a.date === date);
-    if (!attendance || !attendance.advances || attendance.advances.length === 0) return;
+        // Fetch the labor entry document
+        const labourDocSnapshot = await getDoc(labourDocRef);
+        if (!labourDocSnapshot.exists()) {
+            console.warn(`Labour entry with ID ${labourId} not found.`);
+            return;
+        }
 
-    // Render each advance with a delete button
-    attendance.advances.forEach((advance, index) => {
-        const advanceItem = document.createElement("div");
-        advanceItem.className = "advance-item";
-        advanceItem.innerHTML = `
-            Advance: ${advance} <button class="delete-advance" data-index="${index}" data-labour-id="${labourId}" data-date="${date}">🗑</button>
-        `;
-        advanceList.appendChild(advanceItem);
-    });
+        const labourEntry = labourDocSnapshot.data();
+
+        // Find attendance data for the specific date
+        const attendance = labourEntry.attendance?.find((a) => a.date === date);
+        if (!attendance || !attendance.advances || attendance.advances.length === 0) {
+            console.log("No advances found for the specified date.");
+            return;
+        }
+
+        // Render each advance with a delete button
+        attendance.advances.forEach((advance, index) => {
+            const advanceItem = document.createElement("div");
+            advanceItem.className = "advance-item";
+            advanceItem.innerHTML = `
+                Advance: ${advance} <button class="delete-advance" data-index="${index}" data-labour-id="${labourId}" data-date="${date}">🗑</button>
+            `;
+            advanceList.appendChild(advanceItem);
+        });
+
+        console.log("Advances rendered successfully.");
+    } catch (error) {
+        console.error("Error rendering advances popup:", error);
+    }
 }
 // Function to delete an advance
-function deleteAdvance(event) {
+async function deleteAdvance(event) {
     if (!event.target.classList.contains("delete-advance")) return;
 
     const labourId = event.target.dataset.labourId;
     const date = event.target.dataset.date;
     const index = parseInt(event.target.dataset.index, 10);
 
-    // Fetch labour data
-    const entries = window.getLabourEntries();
-    const labourEntry = entries.find((entry) => entry.id === labourId);
+    try {
+        // Verify the authenticated user
+        const user = auth.currentUser;
+        if (!user) {
+            console.error("No authenticated user found.");
+            alert("You must be logged in to delete an advance.");
+            return;
+        }
 
-    if (!labourEntry) return;
+        // Reference the labor document in Firestore
+        const labourDocRef = doc(db, `users/${user.uid}/labourEntries`, labourId);
 
-    // Update attendance by removing the specific advance
-    const attendance = labourEntry.attendance.find((a) => a.date === date);
-    if (attendance && attendance.advances) {
-        attendance.advances.splice(index, 1); // Remove advance
-        localStorage.setItem("labourEntries", JSON.stringify(entries)); // Save to localStorage
+        // Fetch the labor entry document
+        const labourDocSnapshot = await getDoc(labourDocRef);
+        if (!labourDocSnapshot.exists()) {
+            console.warn(`Labour entry with ID ${labourId} not found.`);
+            return;
+        }
+
+        const labourEntry = labourDocSnapshot.data();
+
+        // Find attendance data for the selected date
+        const attendance = labourEntry.attendance?.find((a) => a.date === date);
+        if (!attendance || !attendance.advances || attendance.advances.length <= index) {
+            console.warn(`Advance at index ${index} not found for the specified date.`);
+            return;
+        }
+
+        // Remove the advance at the specified index
+        attendance.advances.splice(index, 1);
+
+        // Save the updated attendance back to Firestore
+        await updateDoc(labourDocRef, { attendance: labourEntry.attendance });
 
         // Re-render popup advances
-        renderAdvancesPopup(labourId, date);
+        await renderAdvancesPopup(labourId, date);
 
-        // Update the spreadsheet with the new total
+        // Update the spreadsheet with the new total advance
         const totalAdvance = attendance.advances.reduce((sum, value) => sum + value, 0);
         const spreadsheetRow = document.querySelector(`.spreadsheet .row[data-date="${date}"]`);
         if (spreadsheetRow) {
@@ -697,86 +794,112 @@ function deleteAdvance(event) {
         }
 
         alert("Advance deleted successfully.");
+        updateCalculator(labourId); // Recalculate after updating attendance
+    } catch (error) {
+        console.error("Error deleting advance:", error);
+        alert("An error occurred while deleting the advance. Please try again.");
     }
-    updateCalculator(labourId); // Recalculate after updating attendance
 }
 // Function to calculate and update the calculator section
-function updateCalculator(labourId) {
+export async function updateCalculator(labourId) {
     const calculator = document.querySelector(".calculator");
-    const entries = window.getLabourEntries();
-    const labourEntry = entries.find((entry) => entry.id === labourId);
 
-    if (!labourEntry) {
-        calculator.innerHTML = "<p>No data available.</p>";
-        return;
+    try {
+        const user = auth.currentUser;
+        if (!user) {
+            console.error("No authenticated user found.");
+            return;
+        }
+
+        // Reference the labor document in Firestore
+        const labourDocRef = doc(db, `users/${user.uid}/labourEntries`, labourId);
+
+        // Fetch the labor entry document
+        const labourDocSnapshot = await getDoc(labourDocRef);
+        if (!labourDocSnapshot.exists()) {
+            console.warn("Labour entry not found in Firebase.");
+            calculator.innerHTML = "<p>No data available.</p>";
+            return;
+        }
+
+        const labourEntry = labourDocSnapshot.data();
+        const ratePerDay = labourEntry.ratePerDay;
+
+        let balance = 0;
+        let totalOTHours = 0; // Track overtime hours
+        let totalAdvance = 0;
+
+        labourEntry.attendance.forEach((attendance) => {
+            // Handle statuses
+            if (attendance.status === "P") {
+                balance += ratePerDay; // Full-day
+            } else if (attendance.status === "H") {
+                balance += 0.5 * ratePerDay; // Half-day
+            } else if (attendance.status === "OT" && attendance.overtime) {
+                // Add both overtime earnings and full-day rate
+                balance += attendance.overtime.hours * attendance.overtime.rate + ratePerDay;
+                totalOTHours += attendance.overtime.hours; // Sum OT hours
+            }
+
+            // Sum advances
+            if (attendance.advances) {
+                totalAdvance += attendance.advances.reduce((sum, value) => sum + value, 0);
+            }
+        });
+
+        const total = balance - totalAdvance;
+
+        // Update calculator UI
+        calculator.innerHTML = `
+            <div class="row">
+                <div class="cell">Balance:</div>
+                <div class="cell">${balance.toFixed(2)}</div>
+            </div>
+            <div class="row">
+                <div class="cell">Overtime Hours:</div>
+                <div class="cell">${totalOTHours}</div>
+            </div>
+            <div class="row">
+                <div class="cell">Advance Money:</div>
+                <div class="cell">${totalAdvance.toFixed(2)}</div>
+            </div>
+            <div class="row">
+                <div class="cell">Total:</div>
+                <div class="cell">${total.toFixed(2)}</div>
+            </div>
+        `;
+    } catch (error) {
+        console.error("Error updating calculator:", error);
     }
-
-    const ratePerDay = labourEntry.ratePerDay;
-
-    let balance = 0;
-    let totalOTHours = 0; // Track overtime hours
-    let totalAdvance = 0;
-
-    labourEntry.attendance.forEach((attendance) => {
-        // Handle statuses
-        if (attendance.status === "P") {
-            balance += ratePerDay; // Full-day
-        } else if (attendance.status === "H") {
-            balance += 0.5 * ratePerDay; // Half-day
-        } else if (attendance.status === "OT" && attendance.overtime) {
-            // Add both overtime earnings and full-day rate
-            balance += attendance.overtime.hours * attendance.overtime.rate + ratePerDay;
-            totalOTHours += attendance.overtime.hours; // Sum OT hours
-        }
-
-        // Sum advances
-        if (attendance.advances) {
-            totalAdvance += attendance.advances.reduce((sum, value) => sum + value, 0);
-        }
-    });
-
-    const total = balance - totalAdvance;
-
-    // Update calculator UI
-    calculator.innerHTML = `
-        <div class="row">
-            <div class="cell">Balance:</div>
-            <div class="cell">${balance.toFixed(2)}</div>
-        </div>
-        <div class="row">
-            <div class="cell">Overtime Hours:</div>
-            <div class="cell">${totalOTHours}</div>
-        </div>
-        <div class="row">
-            <div class="cell">Advance Money:</div>
-            <div class="cell">${totalAdvance.toFixed(2)}</div>
-        </div>
-        <div class="row">
-            <div class="cell">Total:</div>
-            <div class="cell">${total.toFixed(2)}</div>
-        </div>
-    `;
 }
-function updateCalculatorForMonth(labourId, selectedDate) {
-    const calculator = document.querySelector(".calculator");
-    const entries = window.getLabourEntries();
-    const labourEntry = entries.find((entry) => entry.id === labourId);
-
-    if (!labourEntry) {
-        calculator.innerHTML = "<p>No data available.</p>";
+async function updateCalculatorForMonth(labourId, selectedDate) {
+    // Define the 'calculator' DOM element
+    const calculator = document.querySelector(".calculator"); // Ensure the correct selector is used
+    if (!calculator) {
+        console.error("Calculator element not found in the DOM.");
         return;
     }
 
+    // Fetch labour entries from Firebase
+    const entries = await window.getLabourEntries();
+    const labourEntry = entries.find((entry) => entry.id === labourId);
+
+    if (!labourEntry) {
+        console.warn("Labour entry not found in Firebase.");
+        return;
+    }
+
+    // Fetch rate per day and filter attendance for the selected month
     const ratePerDay = labourEntry.ratePerDay;
     const selectedYear = selectedDate.getFullYear();
     const selectedMonth = selectedDate.getMonth();
 
-    // Filter attendance for the selected month
     const monthlyAttendance = labourEntry.attendance.filter((attendance) => {
         const [year, month] = attendance.date.split("-").map(Number);
         return year === selectedYear && month - 1 === selectedMonth; // Adjust month index
     });
 
+    // Initialize calculation variables
     let balance = 0;
     let totalP = 0; // Total full-day attendance
     let totalH = 0; // Total half-day attendance
@@ -795,6 +918,7 @@ function updateCalculatorForMonth(labourId, selectedDate) {
         }
     });
 
+    // Calculate total advance money
     let advanceMoney = 0;
     monthlyAttendance.forEach((attendance) => {
         if (attendance.advances) {
@@ -802,12 +926,13 @@ function updateCalculatorForMonth(labourId, selectedDate) {
         }
     });
 
+    // Calculate final total
     const total = balance - advanceMoney;
 
     // Format attendance breakdown
     const attendanceSummary = `${totalP}+${totalH}+${totalOT}OT`;
 
-    // Update calculator fields
+    // Update the calculator fields in the DOM
     calculator.innerHTML = `
         <div class="row">
             <div class="cell">Balance:</div>
